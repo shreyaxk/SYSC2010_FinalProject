@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import messagebox
 import numpy as np
 import matplotlib.pyplot as plt
 from LOADER import load_csv_numeric
@@ -6,13 +7,21 @@ from filter_ecg import apply_ecg_filter
 from filter_respiration import apply_respiration_filter
 from filter_imu import imu_filter
 from filter_bodytemp import bodytemperature_filter
+from ecg_features import compute_heart_rate_ecg
+from resp_features import respiration_rate
+
+# Simple body temperature feature: average temperature
+def average_body_temperature(y):
+    if len(y) == 0:
+        return 0
+    return np.mean(y)
 
 
 class SignalGUI:
     def __init__(self):
         self.window = tk.Tk()
         self.window.title("Signal Analyzer")
-        self.window.geometry("500x500")
+        self.window.geometry("500x500") 
 
         # file input
         tk.Label(self.window, text="CSV File Path").pack()
@@ -39,6 +48,9 @@ class SignalGUI:
         tk.Button(self.window, text="Plot Filtered Signal", command=self.plot_time).pack(pady=5)
         tk.Button(self.window, text="Plot FFT", command=self.plot_fft).pack(pady=5)
         tk.Button(self.window, text="Plot Raw Signal", command=self.plot_raw_signal).pack(pady=5)
+        tk.Button(self.window, text="Compute Heart Rate", command=self.compute_and_show_hr).pack(pady=5)
+        tk.Button(self.window, text="Compute Breathing Rate", command=self.compute_and_show_rr).pack(pady=5)
+        tk.Button(self.window, text="Compute Average Temperature", command=self.compute_and_show_temp).pack(pady=5)
 
         # plot limit
         self.PLOT_LIMIT = 3000
@@ -89,13 +101,11 @@ class SignalGUI:
     def plot_time(self):
         t, y = self.load_data()
         fs = self.compute_fs(t)
-
         y_processed = self.apply_selected_filter(y, fs)
 
-        # use same indices for both signals
         indices = self.get_downsample_indices(len(t))
         t_plot = t[indices]
-        y_raw_plot = y[indices] - np.mean(y[indices])      
+        y_raw_plot = y[indices] - np.mean(y[indices])
         y_proc_plot = y_processed[indices] - np.mean(y_processed[indices])
 
         plt.close('all')
@@ -125,7 +135,6 @@ class SignalGUI:
     def plot_fft(self):
         t, y = self.load_data()
         fs = self.compute_fs(t)
-
         y_processed = self.apply_selected_filter(y, fs)
 
         indices = self.get_downsample_indices(len(y_processed))
@@ -133,7 +142,7 @@ class SignalGUI:
         fs_ds = fs * len(indices) / len(y_processed)
 
         N = len(y_processed_ds)
-        freqs = np.fft.rfftfreq(N, d=1/fs_ds)
+        freqs = np.fft.rfftfreq(N, d=1 / fs_ds)
         fft_vals = np.abs(np.fft.rfft(y_processed_ds))
 
         plt.close('all')
@@ -143,6 +152,50 @@ class SignalGUI:
         plt.ylabel("Magnitude")
         plt.title(f"FFT ({self.signal_type_var.get()})")
         plt.show()
+
+    # compute heart rate for ECG
+    def compute_and_show_hr(self):
+        if self.signal_type_var.get() != "ECG":
+            messagebox.showinfo("Info", "Heart rate calculation is only available for ECG signals.")
+            return
+
+        t, y = self.load_data()
+        fs = self.compute_fs(t)
+        y_processed = self.apply_selected_filter(y, fs)
+
+        hr, peak_count = compute_heart_rate_ecg(y_processed, fs)
+        if hr == 0:
+            messagebox.showwarning("Warning", "Not enough peaks detected to compute heart rate.")
+        else:
+            messagebox.showinfo("Heart Rate", f"Heart Rate: {hr:.2f} bpm\nDetected Peaks: {peak_count}")
+
+    # respiration rate
+    def compute_and_show_rr(self):
+        if self.signal_type_var.get() != "Respiration":
+            messagebox.showinfo("Info", "Respiration rate calculation is only available for Respiration signals.")
+            return
+
+        t, y = self.load_data()
+        fs = self.compute_fs(t)
+        y_processed = self.apply_selected_filter(y, fs)
+
+        rr, breath_count = respiration_rate(y_processed, fs)
+        if rr == 0:
+            messagebox.showwarning("Warning", "Not enough breaths detected to compute respiration rate.")
+        else:
+            messagebox.showinfo("Respiration Rate", f"Respiration Rate: {rr:.2f} bpm\nDetected Breaths: {breath_count}")
+
+    # average temperature
+    def compute_and_show_temp(self):
+        if self.signal_type_var.get() != "Temperature":
+            messagebox.showinfo("Info", "Temperature calculation is only available for Temperature signals.")
+            return
+
+        t, y = self.load_data()
+        y_processed = self.apply_selected_filter(y, fs=1)
+
+        avg_temp = average_body_temperature(y_processed)
+        messagebox.showinfo("Average Body Temperature", f"Average Temperature: {avg_temp:.2f} °C")
 
 
 if __name__ == "__main__":
